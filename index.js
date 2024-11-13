@@ -74,7 +74,7 @@ function handle(file) {
         texCoords = [];
         faces = [];
         from(text);
-        to(file.name);
+        to(file.name,true);
         console.log(file.type);
         loaded = true;
       };
@@ -96,7 +96,7 @@ function handle(file) {
     texCoords = [];
     faces = [];
     from(text);
-    to("fish");
+    to("fish",false);
     loaded = true;
   }
 }
@@ -132,7 +132,7 @@ function mouseWheel(event) {
   size = constrain(size - event.delta / 50, 0.05, 10e10);
 }
 
-function to(name) {
+function to(name,save) {
   let meshData = "version 1.00\n";
   meshData += `${faces.length}\n`;
   for (let face of faces) {
@@ -149,7 +149,9 @@ function to(name) {
     }
   }
   //console.log(meshData);
-  saveData([meshData], name.split(".")[0] + ".mesh"); 
+  if (save) {
+    saveData([meshData], name.split(".")[0] + ".mesh"); 
+  }
 }
 let b = { x: 1, y: 1 };
 function draw() {
