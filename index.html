@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>3D Object Viewer</title>
+  <style>
+    body { margin: 0; overflow: hidden; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <input type="file" id="fileInput" accept=".obj, .png" multiple />
+  <canvas id="webglCanvas"></canvas>
+  <script>
+    // Initialize variables
+    let obj;
+    let verts = [];
+    let norms = [];
+    let texCoords = [];
+    let faces = [];
+    let tex;
+    let loaded = false;
+    let size = 5; // Scale of the object
+    let spin = {x: 5000, y: 1000}; // Speed of rotation
+
+    // Setup WebGL context
+    const canvas = document.getElementById('webglCanvas');
+    const gl = canvas.getContext('webgl');
+    if (!gl) {
+      console.error("WebGL not supported!");
+      return;
+    }
+
+    // Handle file input
+    document.getElementById('fileInput').addEventListener('change', handleFileInput);
+
+    function handleFileInput(event) {
+      const files = event.target.files;
+      for (let file of files) {
+        if (file.name.endsWith('.obj')) {
+          const reader = new FileReader();
+          reader.onload = function(e) {
+            const text = e.target.result;
+            verts = [];
+            norms = [];
+            texCoords = [];
+            faces = [];
+            from(text);
+            loaded = true;
+          };
+          reader.readAsText(file);
+        } else if (file.name.endsWith('.png')) {
+          const reader = new FileReader();
+          reader.onload = function(e) {
+            const img = new Image();
+            img.onload = function() {
+              tex = createTexture(img);
+            };
+            img.src = e.target.result;
+          };
+          reader.readAsDataURL(file);
+        }
+      }
+    }
+
+    // Parse the OBJ data
+    function from(data) {
+      const lines = data.split('\n');
+      for (let line of lines) {
+        let parts = line.trim().split(/\s+/);
+        if (parts[0] === 'v') {
+          verts.push({x: parseFloat(parts[1]), y: parseFloat(parts[2]), z: parseFloat(parts[3])});
+        } else if (parts[0] === 'vn') {
+          norms.push({x: parseFloat(parts[1]), y: parseFloat(parts[2]), z: parseFloat(parts[3])});
+        } else if (parts[0] === 'vt') {
+          texCoords.push({x: parseFloat(parts[1]), y: parseFloat(parts[2])});
+        } else if (parts[0] === 'f') {
+          let face = [];
+          for (let i = 1; i < parts.length; i++) {
+            let indices = parts[i].split('/');
+            let vIdx = parseInt(indices[0]) - 1;
+            let uvIdx = indices[1] ? parseInt(indices[1]) - 1 : -1;
+            let nIdx = indices[2] ? parseInt(indices[2]) - 1 : -1;
+            face.push({v: vIdx, uv: uvIdx, n: nIdx});
+          }
+          faces.push(face);
+        }
+      }
+    }
+
+    // Create texture from image
+    function createTexture(image) {
+      const texture = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, image);
+      gl.generateMipmap(gl.TEXTURE_2D);
+      return texture;
+    }
+
+    // Set up WebGL context and draw the 3D model
+    function initWebGL() {
+      const vsSource = `
+        attribute vec3 position;
+        attribute vec3 normal;
+        attribute vec2 texCoord;
+        uniform mat4 modelViewMatrix;
+        uniform mat4 projectionMatrix;
+        varying vec2 vTexCoord;
+        varying vec3 vNormal;
+        void main() {
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          vTexCoord = texCoord;
+          vNormal = normal;
+        }
+      `;
+      const fsSource = `
+        precision mediump float;
+        uniform sampler2D uTexture;
+        varying vec2 vTexCoord;
+        varying vec3 vNormal;
+        void main() {
+          gl_FragColor = texture2D(uTexture, vTexCoord);
+        }
+      `;
+      
+      const vertexShader = createShader(gl.VERTEX_SHADER, vsSource);
+      const fragmentShader = createShader(gl.FRAGMENT_SHADER, fsSource);
+      const shaderProgram = createProgram(vertexShader, fragmentShader);
+      gl.useProgram(shaderProgram);
+
+      const positionLocation = gl.getAttribLocation(shaderProgram, "position");
+      const normalLocation = gl.getAttribLocation(shaderProgram, "normal");
+      const texCoordLocation = gl.getAttribLocation(shaderProgram, "texCoord");
+
+      // Set up buffer data for vertices, normals, and texCoords (example, adjust to your object structure)
+      const vertexBuffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(verts.flatMap(v => [v.x, v.y, v.z])), gl.STATIC_DRAW);
+
+      const normalBuffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, normalBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(norms.flatMap(n => [n.x, n.y, n.z])), gl.STATIC_DRAW);
+
+      const texCoordBuffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(texCoords.flatMap(t => [t.x, t.y])), gl.STATIC_DRAW);
+
+      // Create model matrix and projection matrix (for perspective)
+      const modelViewMatrix = mat4.create();
+      const projectionMatrix = mat4.create();
+      mat4.perspective(projectionMatrix, Math.PI / 3, canvas.width / canvas.height, 0.01, 1000);
+
+      gl.enableVertexAttribArray(positionLocation);
+      gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+      gl.vertexAttribPointer(positionLocation, 3, gl.FLOAT, false, 0, 0);
+
+      gl.enableVertexAttribArray(normalLocation);
+      gl.bindBuffer(gl.ARRAY_BUFFER, normalBuffer);
+      gl.vertexAttribPointer(normalLocation, 3, gl.FLOAT, false, 0, 0);
+
+      gl.enableVertexAttribArray(texCoordLocation);
+      gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
+      gl.vertexAttribPointer(texCoordLocation, 2, gl.FLOAT, false, 0, 0);
+      
+      gl.uniformMatrix4fv(gl.getUniformLocation(shaderProgram, "modelViewMatrix"), false, modelViewMatrix);
+      gl.uniformMatrix4fv(gl.getUniformLocation(shaderProgram, "projectionMatrix"), false, projectionMatrix);
+      
+      // Draw the scene
+      requestAnimationFrame(drawScene);
+    }
+
+    // Create WebGL shader
+    function createShader(type, source) {
+      const shader = gl.createShader(type);
+      gl.shaderSource(shader, source);
+      gl.compileShader(shader);
+      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        console.error("Error compiling shader", gl.getShaderInfoLog(shader));
+      }
+      return shader;
+    }
+
+    // Create shader program
+    function createProgram(vertexShader, fragmentShader) {
+      const program = gl.createProgram();
+      gl.attachShader(program, vertexShader);
+      gl.attachShader(program, fragmentShader);
+      gl.linkProgram(program);
+      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+        console.error("Error linking program", gl.getProgramInfoLog(program));
+      }
+      return program;
+    }
+
+    // Draw the scene
+    function drawScene() {
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      gl.clearColor(0, 0, 0, 1);
+      gl.enable(gl.DEPTH_TEST);
+
+      // Apply rotation and other transformations here
+      mat4.rotateY(modelViewMatrix, modelViewMatrix, (Date.now() / spin.y) % (2 * Math.PI));
+      mat4.rotateX(modelViewMatrix, modelViewMatrix, (Date.now() / spin.x) % (2 * Math.PI));
+
+      gl.drawArrays(gl.TRIANGLES, 0, verts.length);
+
+      requestAnimationFrame(drawScene);
+    }
+
+    // Initialize the WebGL scene
+    initWebGL();
+
+  </script>
+</body>
+</html>
