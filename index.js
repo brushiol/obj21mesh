@@ -46,7 +46,6 @@ function preload() {
 function setup() {
   createCanvas(600, 600, WEBGL);
   perspective(PI / 3, width / height, 0.01, 100000000);
-  noStroke();
 }
 
 function saveData(data, filename) {
@@ -181,6 +180,8 @@ function draw() {
   b.x += 5e-3;
   b.y += 5e-3;
   if (loaded) {
+    stroke(255)
+    strokeWeight(sw)
     beginShape(TRIANGLES);
     for (let face of faces) {
       for (let i = 0; i < face.length; i++) {
